@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from streamlit_echarts import st_echarts
+from datetime import datetime
 
 def init_session_state():
     # 初始化会话状态变量
@@ -15,6 +16,20 @@ def init_session_state():
     # 绘图时确认是否有数据
     if 'filtered_data' not in st.session_state:
         st.session_state.filtered_data = None  # 筛选后的数据
+
+# 转换日期时间列函数
+def convert_datetime_columns(df):
+    """将表头包含'日期'或'时间'的列转换为datetime类型"""
+    for col in df.columns:
+        # 检查列名是否包含'日期'或'时间'
+        if '日期' in col or '时间' in col:
+            try:
+                # 尝试转换为datetime类型
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+                st.success(f"已将列 '{col}' 转换为日期时间类型")
+            except Exception as e:
+                st.warning(f"列 '{col}' 转换为日期时间类型失败: {str(e)}")
+    return df
 
 def get_data_types(df) -> dict:
     """
@@ -61,13 +76,15 @@ def main():
                 if file.name not in st.session_state.uploaded_files:
                     try:
                         df = pd.read_csv(file)
+                        # 转换日期时间列
+                        df = convert_datetime_columns(df)
                         st.session_state.uploaded_files[file.name] = df
                         st.success(f"已成功上传: {file.name}")
                     except Exception as e:
                         st.error(f"上传 {file.name} 失败: {str(e)}")
 
     # 页面标题
-    st.title('🎈 数据可视化看板v0.3')
+    st.title('🎈 数据可视化看板v0.4')
 
     # tab页
     tab1, tab2 = st.tabs(["筛选", "展示"])
@@ -83,7 +100,7 @@ def main():
                 selected_file = st.selectbox(
                     "选择要处理的数据",
                     dataset_options,
-                    index=dataset_options.index(st.session_state.selected_file) if st.session_state.selected_file in dataset_options else 0
+                    # index=dataset_options.index(st.session_state.selected_file) if st.session_state.selected_file in dataset_options else 0
                 )
 
                 if selected_file != st.session_state.selected_file:
@@ -169,7 +186,7 @@ def main():
                 st.session_state.filtered_data = filtered_df
 
             with col2:
-                    st.dataframe(filtered_df)
+                st.dataframe(filtered_df, use_container_width=True)
 
         else:
             st.warning("请上传数据，亲")
@@ -208,6 +225,16 @@ def main():
                 )
 
             with col2:
+                # 保证x轴数据唯一
+                x_data = df[x_axis].unique().tolist()
+
+                # x轴为时间处理
+                if data_types[x_axis] == 'datetime':
+                    # 将datetime转换为numeric
+                    x_data = [str(x) for x in x_data]  # 强制转换为字符串
+                    x_data.sort(key=lambda x: datetime.strptime(x, "%Y-%m-%d %H:%M:%S"))
+                    x_data = [x[:10] for x in x_data]
+
                 option = {
                     "tooltip": {
                         "trigger": "axis",
@@ -220,7 +247,7 @@ def main():
                     },
                     "xAxis": {
                         "type": "category",
-                        "data": df[x_axis].unique().tolist(),
+                        "data": x_data,
                         "axisLabel": {"rotate": 45, "interval": 0}  # x轴标签旋转
                     },
                     "yAxis": {
