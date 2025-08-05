@@ -1,9 +1,9 @@
-# 📦 Streamlit App Starter Kit 
+# 📦 Streamlit BI 
 ```
 ⬆️ (Replace above with your app's name)
 ```
 
-Description of the app ...
+v0.1
 
 ## Demo App
 
