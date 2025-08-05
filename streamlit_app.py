@@ -86,6 +86,12 @@ def main():
                 numeric_cols
             )
 
+            # 选择Y轴数据聚合类型
+            agg_type = st.selectbox(
+                "聚合类型",
+                ["求和", "平均值", "最大值", "最小值", "中位数", "计数"]
+            )
+
         with col2:
             option = {
                 "tooltip": {
@@ -114,10 +120,27 @@ def main():
 
             # 为每个Y轴字段添加系列
             for y_axis in y_axes:
+                match agg_type:
+                    case "求和":
+                        y_axis_data = df.groupby(x_axis)[y_axis].sum().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                    case "平均值":
+                        y_axis_data = df.groupby(x_axis)[y_axis].mean().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                    case "最大值":
+                        y_axis_data = df.groupby(x_axis)[y_axis].max().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                    case "最小值":
+                        y_axis_data = df.groupby(x_axis)[y_axis].min().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                    case "中位数":
+                        y_axis_data = df.groupby(x_axis)[y_axis].median().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                    case "计数":
+                        y_axis_data = df.groupby(x_axis)[y_axis].count().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                    case _:
+                        # 默认求和
+                        y_axis_data = df.groupby(x_axis)[y_axis].sum().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+
                 series = {
                     "name": y_axis,
                     "type": chart_type,
-                    "data": df.groupby(x_axis)[y_axis].sum().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                    "data": y_axis_data
                 }
                 option["series"].append(series)
 
