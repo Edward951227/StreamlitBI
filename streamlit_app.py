@@ -2,6 +2,11 @@ import streamlit as st
 import pandas as pd
 from streamlit_echarts import st_echarts
 
+def init_session_state():
+    # 初始化会话状态变量
+    if 'uploaded_files' not in st.session_state:
+        st.session_state.uploaded_files = {}  # 存储上传的文件，格式: {文件名: DataFrame}
+
 def get_data_types(df) -> dict:
     """
     返回每列的数据类型
@@ -19,10 +24,8 @@ def get_data_types(df) -> dict:
     return data_types
 
 def main():
-    # 可选数据
-    dataset_options = []
-    # 映射数据集到pandas函数
-    table_mapping = {}
+    # 初始化会话状态
+    init_session_state()
 
     # 设置页面配置
     st.set_page_config(
@@ -33,37 +36,43 @@ def main():
 
     # 侧边栏 - 数据筛选
     with (st.sidebar):
-        st.header("数据上传")
+        st.header("📂 数据上传")
 
-        # 上传数据（支持多个文件，最大200MB）
+        # 上传CSV文件（支持多个文件，最大200MB）
         uploaded_files = st.file_uploader(
-            "选择CSV文件", accept_multiple_files=True
+            "选择CSV文件",
+            type="csv",
+            accept_multiple_files=True,
+            key="file_uploader"
         )
 
-        i = 0
-        for uploaded_file in uploaded_files:
-            i=+1
-            df = pd.read_csv(uploaded_file)
-            dataset_options.append(uploaded_file.name)
-            table_mapping[uploaded_file.name] = df
-            with st.expander("文件：" + uploaded_file.name):
-                st.dataframe(df)
+        # 处理上传的文件
+        if uploaded_files:
+            for file in uploaded_files:
+                if file.name not in st.session_state.uploaded_files:
+                    try:
+                        df = pd.read_csv(file)
+                        st.session_state.uploaded_files[file.name] = df
+                        st.success(f"已成功上传: {file.name}")
+                    except Exception as e:
+                        st.error(f"上传 {file.name} 失败: {str(e)}")
 
     # 页面标题
-    st.title('🎈 数据可视化看板v0.1')
+    st.title('🎈 数据可视化看板v0.2')
 
     # 完成初始化
-    if i:
+    if st.session_state.uploaded_files:
+        dataset_options = list(st.session_state.uploaded_files.keys())
         col1, col2 = st.columns([1,4])
 
         # 选择框
         with col1:
             # 选择数据
             selected_dataset = st.selectbox(
-                "选择数据集",
+                "选择要处理的数据",
                 dataset_options
             )
-            df = table_mapping[selected_dataset]
+            df = st.session_state.uploaded_files[selected_dataset]
             # 获取数据类型
             data_types = get_data_types(df)
 
