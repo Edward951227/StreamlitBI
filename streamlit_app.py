@@ -13,6 +13,12 @@ def init_session_state():
     # 初始化筛选条件会话状态
     if 'filters' not in st.session_state:
         st.session_state.filters = {}
+    #
+    if 'use_grouping' not in st.session_state:
+        st.session_state.use_grouping = False
+    # 初始化index
+    if 'index' not in st.session_state:
+        st.session_state.index = None
     # 绘图时确认是否有数据
     if 'filtered_data' not in st.session_state:
         st.session_state.filtered_data = None  # 筛选后的数据
@@ -84,7 +90,7 @@ def main():
                         st.error(f"上传 {file.name} 失败: {str(e)}")
 
     # 页面标题
-    st.title('🎈 数据可视化看板v0.4')
+    st.title('🎈 数据可视化看板v0.5')
 
     # tab页
     tab1, tab2 = st.tabs(["筛选", "展示"])
@@ -105,7 +111,9 @@ def main():
 
                 if selected_file != st.session_state.selected_file:
                     st.session_state.selected_file = selected_file
-                    st.session_state.filtered_data = None  # 重置筛选数据
+                    # 重置筛选数据
+                    st.session_state.filtered_data = None
+                    st.session_state.index = None
 
                 # 获取所选数据
                 df = st.session_state.uploaded_files[selected_file]
@@ -113,8 +121,55 @@ def main():
                 # 获取数据类型
                 data_types = get_data_types(df)
 
+                # 复制数据用于筛选
+                filtered_df = df.copy()
+
                 # 获取字段
-                columns = df.columns.tolist()
+                columns = filtered_df.columns.tolist()
+
+                # 数据分组
+                st.subheader("数据分组")
+
+                # 是否分组选项
+                st.session_state.use_grouping = st.toggle("使用分组展示", value=False)
+                if st.session_state.use_grouping:
+                    # 分组字段
+                    column = st.selectbox(
+                        "分组字段",
+                        columns
+                    )
+
+                    # 标签字段
+                    index_options = [col for col in columns if col != column]
+                    index = st.selectbox(
+                        "标签字段",
+                        index_options
+                    )
+                    # 保存index状态
+                    st.session_state.index = index
+
+                    # 值字段
+                    value_options = [col for col in columns if col != column and col != index]
+                    value_options = [col for col in value_options if data_types[col] == 'numeric']
+                    value = st.selectbox(
+                        "值字段",
+                        value_options
+                    )
+
+                    try:
+                        # 将分组后的数据保存
+                        filtered_df = filtered_df.pivot(index=index, columns=column, values=value)
+                        # 保存筛选后的数据到会话状态
+                        st.session_state.filtered_data = filtered_df
+                        # 加上index列
+                        filtered_df[index] = filtered_df.index
+                        # 重新获取数据类型
+                        data_types = get_data_types(filtered_df)
+                        st.write(data_types)
+                        # 重新获取字段
+                        columns = filtered_df.columns.tolist()
+                    except Exception as e:
+                        st.warning(e)
 
                 # 数据筛选
                 st.subheader("数据筛选")
@@ -125,16 +180,13 @@ def main():
                     columns
                 )
 
-                # 复制数据用于筛选
-                filtered_df = df.copy()
-
                 # 为每个字段创建筛选控件
                 for col in selected_filter_columns:
                     if data_types[col] == 'datetime':
                         # 日期型字段
                         try:
-                            min_date = df[col].min()
-                            max_date = df[col].max()
+                            min_date = filtered_df[col].min()
+                            max_date = filtered_df[col].max()
 
                             if not pd.isna(min_date) and not pd.isna(max_date) and min_date < max_date:
                                 date_range = st.date_input(
@@ -149,13 +201,13 @@ def main():
                                         (filtered_df[col] >= pd.to_datetime(date_range[0])) &
                                         (filtered_df[col] <= pd.to_datetime(date_range[1]))
                                         ]
-                        except:
-                            pass
+                        except Exception as e:
+                            st.warning(e)
 
                     elif data_types[col] == 'numeric':
                         # 数值型字段
-                        min_val = float(df[col].min())
-                        max_val = float(df[col].max())
+                        min_val = float(filtered_df[col].min())
+                        max_val = float(filtered_df[col].max())
 
                         # 只有当最大值大于最小值时才显示滑块
                         if max_val > min_val:
@@ -173,7 +225,7 @@ def main():
 
                     else:
                         # 类别型字段
-                        unique_vals = sorted(df[col].dropna().unique())
+                        unique_vals = sorted(filtered_df[col].dropna().unique())
                         selected_vals = st.multiselect(
                             f"选择 {col} 的值",
                             unique_vals,
@@ -197,6 +249,15 @@ def main():
             st.warning("没有可用数据，请先在首页上传并筛选数据")
         else:
             df = st.session_state.filtered_data
+
+            # 如果index数据参与了筛选，需要去掉
+            if st.session_state.use_grouping:
+                df = df.reset_index(drop=True)
+
+            # 重新获取数据类型
+            data_types = get_data_types(df)
+            # 重新获取字段
+            columns = df.columns.tolist()
             # 选择框
             col1, col2 = st.columns([1, 4])
             with col1:
@@ -208,21 +269,22 @@ def main():
                 # 选择X轴字段
                 x_axis = st.selectbox(
                     "X轴字段",
-                    df.columns.tolist()
+                    columns
                 )
 
                 # 选择Y轴字段
-                numeric_cols = [col for col in df.columns if data_types[col] == 'numeric']
+                numeric_cols = [col for col in columns if data_types[col] == 'numeric']
                 y_axes = st.multiselect(
                     "Y轴字段（可多选）",
                     numeric_cols
                 )
 
-                # 选择Y轴数据聚合类型
-                agg_type = st.selectbox(
-                    "聚合类型",
-                    ["求和", "平均值", "最大值", "最小值", "中位数", "计数"]
-                )
+                # 选择Y轴数据聚合类型（仅支持非分组）
+                if not st.session_state.use_grouping:
+                    agg_type = st.selectbox(
+                        "聚合类型",
+                        ["求和", "平均值", "最大值", "最小值", "中位数", "计数"]
+                    )
 
             with col2:
                 # 保证x轴数据唯一
