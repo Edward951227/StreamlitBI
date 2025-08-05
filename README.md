@@ -3,7 +3,7 @@
 ⬆️ (Replace above with your app's name)
 ```
 
-v0.1
+v0.2
 
 ## Demo App
 
