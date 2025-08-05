@@ -13,7 +13,7 @@ def init_session_state():
     # 初始化筛选条件会话状态
     if 'filters' not in st.session_state:
         st.session_state.filters = {}
-    #
+    # 初始化是否分组
     if 'use_grouping' not in st.session_state:
         st.session_state.use_grouping = False
     # 初始化index
@@ -21,7 +21,10 @@ def init_session_state():
         st.session_state.index = None
     # 绘图时确认是否有数据
     if 'filtered_data' not in st.session_state:
-        st.session_state.filtered_data = None  # 筛选后的数据
+        st.session_state.filtered_data = None
+    # 筛选后的数据
+    if 'agg_type' not in st.session_state:
+        st.session_state.agg_type = None
 
 # 转换日期时间列函数
 def convert_datetime_columns(df):
@@ -165,7 +168,6 @@ def main():
                         filtered_df[index] = filtered_df.index
                         # 重新获取数据类型
                         data_types = get_data_types(filtered_df)
-                        st.write(data_types)
                         # 重新获取字段
                         columns = filtered_df.columns.tolist()
                     except Exception as e:
@@ -263,7 +265,7 @@ def main():
             with col1:
                 chart_type = st.selectbox(
                     "图表类型",
-                    ['bar', 'line']
+                    ['bar', 'line', 'scatter']
                 )
 
                 # 选择X轴字段
@@ -285,6 +287,8 @@ def main():
                         "聚合类型",
                         ["求和", "平均值", "最大值", "最小值", "中位数", "计数"]
                     )
+                    # 更新聚合类型状态
+                    st.session_state.agg_type = agg_type
 
             with col2:
                 # 保证x轴数据唯一
@@ -296,6 +300,10 @@ def main():
                     x_data = [str(x) for x in x_data]  # 强制转换为字符串
                     x_data.sort(key=lambda x: datetime.strptime(x, "%Y-%m-%d %H:%M:%S"))
                     x_data = [x[:10] for x in x_data]
+
+                # x轴为数字处理
+                if data_types[x_axis] == 'numeric':
+                    x_data.sort()
 
                 option = {
                     "tooltip": {
@@ -324,7 +332,7 @@ def main():
 
                 # 为每个Y轴字段添加系列
                 for y_axis in y_axes:
-                    match agg_type:
+                    match st.session_state.agg_type:
                         case "求和":
                             y_axis_data = df.groupby(x_axis)[y_axis].sum().reindex(option["xAxis"]["data"]).fillna(0).tolist()
                         case "平均值":
@@ -351,7 +359,7 @@ def main():
                 # 绘图
                 st_echarts(
                     option,
-                    height="500px"
+                    height="600px"
                 )
 
 if __name__ == "__main__":
