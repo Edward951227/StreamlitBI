@@ -6,6 +6,15 @@ def init_session_state():
     # 初始化会话状态变量
     if 'uploaded_files' not in st.session_state:
         st.session_state.uploaded_files = {}  # 存储上传的文件，格式: {文件名: DataFrame}
+    # 初始化选中文件
+    if 'selected_file' not in st.session_state:
+        st.session_state.selected_file = None  # 当前选中的文件名
+    # 初始化筛选条件会话状态
+    if 'filters' not in st.session_state:
+        st.session_state.filters = {}
+    # 绘图时确认是否有数据
+    if 'filtered_data' not in st.session_state:
+        st.session_state.filtered_data = None  # 筛选后的数据
 
 def get_data_types(df) -> dict:
     """
@@ -58,109 +67,203 @@ def main():
                         st.error(f"上传 {file.name} 失败: {str(e)}")
 
     # 页面标题
-    st.title('🎈 数据可视化看板v0.2')
+    st.title('🎈 数据可视化看板v0.3')
 
-    # 完成初始化
-    if st.session_state.uploaded_files:
-        dataset_options = list(st.session_state.uploaded_files.keys())
-        col1, col2 = st.columns([1,4])
+    # tab页
+    tab1, tab2 = st.tabs(["筛选", "展示"])
+    with tab1:
+        # 完成初始化
+        if st.session_state.uploaded_files:
+            dataset_options = list(st.session_state.uploaded_files.keys())
+            col1, col2 = st.columns([1, 4])
 
-        # 选择框
-        with col1:
-            # 选择数据
-            selected_dataset = st.selectbox(
-                "选择要处理的数据",
-                dataset_options
-            )
-            df = st.session_state.uploaded_files[selected_dataset]
-            # 获取数据类型
-            data_types = get_data_types(df)
+            # 选择框
+            with col1:
+                # 选择数据
+                selected_file = st.selectbox(
+                    "选择要处理的数据",
+                    dataset_options,
+                    index=dataset_options.index(st.session_state.selected_file) if st.session_state.selected_file in dataset_options else 0
+                )
 
-            # 选择图表类型
-            chart_type = st.selectbox(
-                "图表类型",
-                ['bar', 'line']
-            )
+                if selected_file != st.session_state.selected_file:
+                    st.session_state.selected_file = selected_file
+                    st.session_state.filtered_data = None  # 重置筛选数据
 
-            # 选择X轴字段
-            x_axis = st.selectbox(
-                "X轴字段",
-                df.columns.tolist()
-            )
+                # 获取所选数据
+                df = st.session_state.uploaded_files[selected_file]
 
-            # 选择Y轴字段
-            numeric_cols = [col for col in df.columns if data_types[col] == 'numeric']
-            y_axes = st.multiselect(
-                "Y轴字段（可多选）",
-                numeric_cols
-            )
+                # 获取数据类型
+                data_types = get_data_types(df)
 
-            # 选择Y轴数据聚合类型
-            agg_type = st.selectbox(
-                "聚合类型",
-                ["求和", "平均值", "最大值", "最小值", "中位数", "计数"]
-            )
+                # 获取字段
+                columns = df.columns.tolist()
 
-        with col2:
-            option = {
-                "tooltip": {
-                    "trigger": "axis",
-                    "axisPointer": {"type": "shadow" if chart_type == 'bar' else "line"}
-                },
-                "legend": {
-                    "data": [],  # 动态填充图例
-                    # "top": 30,
-                    # "right": 10
-                },
-                "xAxis": {
-                    "type": "category",
-                    "data": df[x_axis].unique().tolist(),
-                    "axisLabel": {"rotate": 45, "interval": 0}  # x轴标签旋转
-                },
-                "yAxis": {
-                    "type": "value",
-                    # "name": ", ".join(y_axes)
-                },
-                "series": []  # 动态填充数据系列
-            }
+                # 数据筛选
+                st.subheader("数据筛选")
 
-            # 图例为Y轴字段
-            option["legend"]["data"] = y_axes
+                # 选择要筛选的字段
+                selected_filter_columns = st.multiselect(
+                    "选择筛选字段",
+                    columns
+                )
 
-            # 为每个Y轴字段添加系列
-            for y_axis in y_axes:
-                match agg_type:
-                    case "求和":
-                        y_axis_data = df.groupby(x_axis)[y_axis].sum().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                    case "平均值":
-                        y_axis_data = df.groupby(x_axis)[y_axis].mean().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                    case "最大值":
-                        y_axis_data = df.groupby(x_axis)[y_axis].max().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                    case "最小值":
-                        y_axis_data = df.groupby(x_axis)[y_axis].min().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                    case "中位数":
-                        y_axis_data = df.groupby(x_axis)[y_axis].median().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                    case "计数":
-                        y_axis_data = df.groupby(x_axis)[y_axis].count().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                    case _:
-                        # 默认求和
-                        y_axis_data = df.groupby(x_axis)[y_axis].sum().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                # 复制数据用于筛选
+                filtered_df = df.copy()
 
-                series = {
-                    "name": y_axis,
-                    "type": chart_type,
-                    "data": y_axis_data
+                # 为每个字段创建筛选控件
+                for col in selected_filter_columns:
+                    if data_types[col] == 'datetime':
+                        # 日期型字段
+                        try:
+                            min_date = df[col].min()
+                            max_date = df[col].max()
+
+                            if not pd.isna(min_date) and not pd.isna(max_date) and min_date < max_date:
+                                date_range = st.date_input(
+                                    f"{col} 范围",
+                                    value=[min_date, max_date],
+                                    min_value=min_date,
+                                    max_value=max_date,
+                                    key=f"date_{col}"
+                                )
+                                if len(date_range) == 2:
+                                    filtered_df = filtered_df[
+                                        (filtered_df[col] >= pd.to_datetime(date_range[0])) &
+                                        (filtered_df[col] <= pd.to_datetime(date_range[1]))
+                                        ]
+                        except:
+                            pass
+
+                    elif data_types[col] == 'numeric':
+                        # 数值型字段
+                        min_val = float(df[col].min())
+                        max_val = float(df[col].max())
+
+                        # 只有当最大值大于最小值时才显示滑块
+                        if max_val > min_val:
+                            selected_range = st.slider(
+                                f"{col} 范围",
+                                min_value=min_val,
+                                max_value=max_val,
+                                value=(min_val, max_val),
+                                key=f"slider_{col}"
+                            )
+                            filtered_df = filtered_df[
+                                (filtered_df[col] >= selected_range[0]) &
+                                (filtered_df[col] <= selected_range[1])
+                            ]
+
+                    else:
+                        # 类别型字段
+                        unique_vals = sorted(df[col].dropna().unique())
+                        selected_vals = st.multiselect(
+                            f"选择 {col} 的值",
+                            unique_vals,
+                            default=unique_vals,
+                            key=f"multiselect_{col}"
+                        )
+                        filtered_df = filtered_df[filtered_df[col].isin(selected_vals)]
+
+                # 保存筛选后的数据到会话状态
+                st.session_state.filtered_data = filtered_df
+
+            with col2:
+                    st.dataframe(filtered_df)
+
+        else:
+            st.warning("请上传数据，亲")
+
+    with tab2:
+        # 检查是否有可用数据
+        if st.session_state.filtered_data is None or len(st.session_state.filtered_data) == 0:
+            st.warning("没有可用数据，请先在首页上传并筛选数据")
+        else:
+            df = st.session_state.filtered_data
+            # 选择框
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                chart_type = st.selectbox(
+                    "图表类型",
+                    ['bar', 'line']
+                )
+
+                # 选择X轴字段
+                x_axis = st.selectbox(
+                    "X轴字段",
+                    df.columns.tolist()
+                )
+
+                # 选择Y轴字段
+                numeric_cols = [col for col in df.columns if data_types[col] == 'numeric']
+                y_axes = st.multiselect(
+                    "Y轴字段（可多选）",
+                    numeric_cols
+                )
+
+                # 选择Y轴数据聚合类型
+                agg_type = st.selectbox(
+                    "聚合类型",
+                    ["求和", "平均值", "最大值", "最小值", "中位数", "计数"]
+                )
+
+            with col2:
+                option = {
+                    "tooltip": {
+                        "trigger": "axis",
+                        "axisPointer": {"type": "shadow" if chart_type == 'bar' else "line"}
+                    },
+                    "legend": {
+                        "data": [],  # 动态填充图例
+                        # "top": 30,
+                        # "right": 10
+                    },
+                    "xAxis": {
+                        "type": "category",
+                        "data": df[x_axis].unique().tolist(),
+                        "axisLabel": {"rotate": 45, "interval": 0}  # x轴标签旋转
+                    },
+                    "yAxis": {
+                        "type": "value",
+                        # "name": ", ".join(y_axes)
+                    },
+                    "series": []  # 动态填充数据系列
                 }
-                option["series"].append(series)
 
-            # 绘图
-            st_echarts(
-                option,
-                height="500px"
-            )
+                # 图例为Y轴字段
+                option["legend"]["data"] = y_axes
 
-    else:
-        st.write("请上传数据，亲")
+                # 为每个Y轴字段添加系列
+                for y_axis in y_axes:
+                    match agg_type:
+                        case "求和":
+                            y_axis_data = df.groupby(x_axis)[y_axis].sum().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                        case "平均值":
+                            y_axis_data = df.groupby(x_axis)[y_axis].mean().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                        case "最大值":
+                            y_axis_data = df.groupby(x_axis)[y_axis].max().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                        case "最小值":
+                            y_axis_data = df.groupby(x_axis)[y_axis].min().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                        case "中位数":
+                            y_axis_data = df.groupby(x_axis)[y_axis].median().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                        case "计数":
+                            y_axis_data = df.groupby(x_axis)[y_axis].count().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+                        case _:
+                            # 默认求和
+                            y_axis_data = df.groupby(x_axis)[y_axis].sum().reindex(option["xAxis"]["data"]).fillna(0).tolist()
+
+                    series = {
+                        "name": y_axis,
+                        "type": chart_type,
+                        "data": y_axis_data
+                    }
+                    option["series"].append(series)
+
+                # 绘图
+                st_echarts(
+                    option,
+                    height="500px"
+                )
 
 if __name__ == "__main__":
     main()
