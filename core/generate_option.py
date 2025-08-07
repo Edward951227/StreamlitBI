@@ -71,4 +71,4 @@ def generate_option(df, x_axis, y_axes, data_types, chart_type):
         }
         option["series"].append(series)
 
-        return option
+    return option
