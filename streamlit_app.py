@@ -1,60 +1,11 @@
 import streamlit as st
 import pandas as pd
 from streamlit_echarts import st_echarts
-from datetime import datetime
+from core.convert_datetime_columns import convert_datetime_columns
+from core.generate_option import generate_option
+from core.get_data_types import get_data_types
+from core.init_session_state import init_session_state
 
-def init_session_state():
-    # 初始化会话状态变量
-    if 'uploaded_files' not in st.session_state:
-        st.session_state.uploaded_files = {}  # 存储上传的文件，格式: {文件名: DataFrame}
-    # 初始化选中文件
-    if 'selected_file' not in st.session_state:
-        st.session_state.selected_file = None  # 当前选中的文件名
-    # 初始化筛选条件会话状态
-    if 'filters' not in st.session_state:
-        st.session_state.filters = {}
-    # 初始化是否分组
-    if 'use_grouping' not in st.session_state:
-        st.session_state.use_grouping = False
-    # 初始化index
-    if 'index' not in st.session_state:
-        st.session_state.index = None
-    # 绘图时确认是否有数据
-    if 'filtered_data' not in st.session_state:
-        st.session_state.filtered_data = None
-    # 筛选后的数据
-    if 'agg_type' not in st.session_state:
-        st.session_state.agg_type = None
-
-# 转换日期时间列函数
-def convert_datetime_columns(df):
-    """将表头包含'日期'或'时间'的列转换为datetime类型"""
-    for col in df.columns:
-        # 检查列名是否包含'日期'或'时间'
-        if '日期' in col or '时间' in col:
-            try:
-                # 尝试转换为datetime类型
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-                st.success(f"已将列 '{col}' 转换为日期时间类型")
-            except Exception as e:
-                st.warning(f"列 '{col}' 转换为日期时间类型失败: {str(e)}")
-    return df
-
-def get_data_types(df) -> dict:
-    """
-    返回每列的数据类型
-    :param df: 待判断数据类型的DataFrame
-    :return: Dictionary
-    """
-    data_types = {}
-    for col in df.columns:
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
-            data_types[col] = 'datetime'
-        elif pd.api.types.is_numeric_dtype(df[col]):
-            data_types[col] = 'numeric'
-        else:
-            data_types[col] = 'categorical'
-    return data_types
 
 def main():
     # 初始化会话状态
@@ -93,7 +44,7 @@ def main():
                         st.error(f"上传 {file.name} 失败: {str(e)}")
 
     # 页面标题
-    st.title('🎈 数据可视化看板v0.5')
+    st.title('🎈 数据可视化看板v0.6')
 
     # tab页
     tab1, tab2 = st.tabs(["筛选", "展示"])
@@ -291,70 +242,7 @@ def main():
                     st.session_state.agg_type = agg_type
 
             with col2:
-                # 保证x轴数据唯一
-                x_data = df[x_axis].unique().tolist()
-
-                # x轴为时间处理
-                if data_types[x_axis] == 'datetime':
-                    # 将datetime转换为numeric
-                    x_data = [str(x) for x in x_data]  # 强制转换为字符串
-                    x_data.sort(key=lambda x: datetime.strptime(x, "%Y-%m-%d %H:%M:%S"))
-                    x_data = [x[:10] for x in x_data]
-
-                # x轴为数字处理
-                if data_types[x_axis] == 'numeric':
-                    x_data.sort()
-
-                option = {
-                    "tooltip": {
-                        "trigger": "axis",
-                        "axisPointer": {"type": "shadow" if chart_type == 'bar' else "line"}
-                    },
-                    "legend": {
-                        "data": [],  # 动态填充图例
-                        # "top": 30,
-                        # "right": 10
-                    },
-                    "xAxis": {
-                        "type": "category",
-                        "data": x_data,
-                        "axisLabel": {"rotate": 45, "interval": 0}  # x轴标签旋转
-                    },
-                    "yAxis": {
-                        "type": "value",
-                        # "name": ", ".join(y_axes)
-                    },
-                    "series": []  # 动态填充数据系列
-                }
-
-                # 图例为Y轴字段
-                option["legend"]["data"] = y_axes
-
-                # 为每个Y轴字段添加系列
-                for y_axis in y_axes:
-                    match st.session_state.agg_type:
-                        case "求和":
-                            y_axis_data = df.groupby(x_axis)[y_axis].sum().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                        case "平均值":
-                            y_axis_data = df.groupby(x_axis)[y_axis].mean().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                        case "最大值":
-                            y_axis_data = df.groupby(x_axis)[y_axis].max().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                        case "最小值":
-                            y_axis_data = df.groupby(x_axis)[y_axis].min().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                        case "中位数":
-                            y_axis_data = df.groupby(x_axis)[y_axis].median().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                        case "计数":
-                            y_axis_data = df.groupby(x_axis)[y_axis].count().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-                        case _:
-                            # 默认求和
-                            y_axis_data = df.groupby(x_axis)[y_axis].sum().reindex(option["xAxis"]["data"]).fillna(0).tolist()
-
-                    series = {
-                        "name": y_axis,
-                        "type": chart_type,
-                        "data": y_axis_data
-                    }
-                    option["series"].append(series)
+                option = generate_option(df, x_axis, y_axes, data_types, chart_type)
 
                 # 绘图
                 st_echarts(
